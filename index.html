@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>POC PMTiles - Temperatura Nonguén</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+    .panel {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 16px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      font-size: 13px;
+      max-width: 360px;
+      z-index: 1;
+    }
+    .panel h1 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .panel .meta {
+      color: #555;
+      line-height: 1.5;
+    }
+    .panel .stat {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid #eee;
+      padding-top: 6px;
+      margin-top: 6px;
+    }
+    .panel .stat strong {
+      font-variant-numeric: tabular-nums;
+    }
+    .popup-content {
+      font-size: 12px;
+    }
+    .popup-content .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 0;
+    }
+    .popup-content .swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-right: 6px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    #fps {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="panel">
+    <h1>POC PMTiles - Temperatura Nonguén</h1>
+    <div class="meta">
+      Indicador LST otoño 2025 sobre Parque Nacional Nonguén.<br>
+      Formato: <strong>PMTiles vector tiles</strong>.<br>
+      Sin dissolve aplicado (caso "v1-clean").
+    </div>
+    <div class="stat">
+      <span>Archivo PMTiles</span>
+      <strong>5.9 MB</strong>
+    </div>
+    <div class="stat">
+      <span>GeoJSON crudo</span>
+      <strong>45 MB</strong>
+    </div>
+    <div class="stat">
+      <span>GeoJSON gzipped</span>
+      <strong>3.0 MB</strong>
+    </div>
+    <div class="stat">
+      <span>Features fuente</span>
+      <strong>175.824</strong>
+    </div>
+    <div class="stat">
+      <span>Estado</span>
+      <strong id="status">cargando...</strong>
+    </div>
+    <div class="stat">
+      <span style="color: #555; font-size: 11px;">Click sobre un polígono para resaltar con feature-state</span>
+    </div>
+  </div>
+  <div id="fps">FPS: <span id="fps-val">—</span></div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+  <script>
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+
+    // Bounds de Nonguén (extraídos del dato)
+    const center = [-72.978, -36.894];
+
+    const map = new maplibregl.Map({
+      container: "map",
+      style: {
+        version: 8,
+        sources: {
+          basemap: {
+            type: "raster",
+            tiles: [
+              "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            ],
+            tileSize: 256,
+            attribution: '&copy; OpenStreetMap contributors'
+          }
+        },
+        layers: [
+          { id: "basemap", type: "raster", source: "basemap" }
+        ]
+      },
+      center: center,
+      zoom: 12.5,
+      hash: true
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
+
+    const statusEl = document.getElementById("status");
+
+    map.on("load", () => {
+      const t0 = performance.now();
+      statusEl.textContent = "cargando tiles...";
+
+      map.addSource("temperatura", {
+        type: "vector",
+        url: "pmtiles://./temperatura-v1-clean-ids.pmtiles"
+        // sin promoteId: los IDs ya están a nivel MVT (numéricos via --use-attribute-for-id)
+      });
+
+      map.addLayer({
+        id: "temperatura-fill",
+        type: "fill",
+        source: "temperatura",
+        "source-layer": "temperatura",
+        paint: {
+          "fill-color": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            "#01EEDA",
+            ["coalesce", ["get", "fill"], "#888"]
+          ],
+          "fill-opacity": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            0.45,
+            0.85
+          ]
+        }
+      });
+
+      // Línea fina sobre el borde de cada polígono para verlos al hacer zoom
+      map.addLayer({
+        id: "temperatura-outline",
+        type: "line",
+        source: "temperatura",
+        "source-layer": "temperatura",
+        paint: {
+          "line-color": "rgba(0,0,0,0.15)",
+          "line-width": 0.3
+        },
+        minzoom: 13
+      });
+
+      map.once("idle", () => {
+        const dt = (performance.now() - t0).toFixed(0);
+        statusEl.textContent = `tiles listos en ${dt} ms`;
+      });
+
+      // Highlight con feature-state al clickear
+      let selectedFeatureId = null;
+      const SOURCE = "temperatura";
+      const SOURCE_LAYER = "temperatura";
+
+      let currentPopup = null;
+
+      function clearSelection() {
+        if (selectedFeatureId != null) {
+          map.setFeatureState(
+            { source: SOURCE, sourceLayer: SOURCE_LAYER, id: selectedFeatureId },
+            { selected: false }
+          );
+          selectedFeatureId = null;
+        }
+      }
+
+      map.on("click", "temperatura-fill", (e) => {
+        const feat = e.features?.[0];
+        if (!feat) return;
+
+        console.log("[click] feat.id:", feat.id, "props:", feat.properties);
+
+        const props = feat.properties || {};
+        const swatchColor = props.fill || "#888";
+
+        // Limpiar selección y popup previos antes de aplicar el nuevo
+        clearSelection();
+        if (currentPopup) {
+          currentPopup.remove();
+          currentPopup = null;
+        }
+
+        if (feat.id != null) {
+          map.setFeatureState(
+            { source: SOURCE, sourceLayer: SOURCE_LAYER, id: feat.id },
+            { selected: true }
+          );
+          selectedFeatureId = feat.id;
+        }
+
+        currentPopup = new maplibregl.Popup({ maxWidth: "260px", closeOnClick: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div class="popup-content">
+              <div class="row">
+                <span>Color (fill)</span>
+                <strong><span class="swatch" style="background:${swatchColor}"></span>${swatchColor}</strong>
+              </div>
+              <div class="row">
+                <span>avgLst</span>
+                <strong>${props.avgLst ?? "—"} °C</strong>
+              </div>
+              <div class="row">
+                <span>Feature id</span>
+                <strong>${feat.id ?? "—"}</strong>
+              </div>
+              <div class="row" style="border-top: 1px solid #eee; padding-top: 4px; margin-top: 4px; color: #555; font-size: 11px;">
+                <span>Resaltado vía feature-state</span>
+              </div>
+            </div>
+          `)
+          .addTo(map);
+
+        // Solo limpia cuando el usuario explícitamente cierra el popup (botón X)
+        currentPopup.on("close", () => {
+          clearSelection();
+          currentPopup = null;
+        });
+      });
+
+      // Click en mapa fuera de cualquier polígono → limpiar
+      map.on("click", (e) => {
+        const feats = map.queryRenderedFeatures(e.point, { layers: ["temperatura-fill"] });
+        if (feats.length === 0) {
+          clearSelection();
+          if (currentPopup) {
+            currentPopup.remove();
+            currentPopup = null;
+          }
+        }
+      });
+
+      map.on("mouseenter", "temperatura-fill", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "temperatura-fill", () => {
+        map.getCanvas().style.cursor = "";
+      });
+    });
+
+    // FPS counter — útil para ver fluidez al panear/zoomear
+    let lastTime = performance.now();
+    let frames = 0;
+    let displayedFps = 0;
+    const fpsEl = document.getElementById("fps-val");
+
+    function tick() {
+      const now = performance.now();
+      frames++;
+      if (now - lastTime >= 500) {
+        displayedFps = Math.round((frames * 1000) / (now - lastTime));
+        fpsEl.textContent = displayedFps;
+        frames = 0;
+        lastTime = now;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
