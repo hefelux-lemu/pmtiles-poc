@@ -95,12 +95,17 @@
       font-size: 12px;
     }
     #filters h2 {
-      margin: 0 0 8px;
+      margin: 0;
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: #444;
+    }
+    #filters .hint {
+      margin: 2px 0 8px;
+      font-size: 11px;
+      color: #888;
     }
     #filters .bin {
       display: flex;
@@ -199,7 +204,8 @@
     </div>
 
     <div id="filters">
-      <h2>Filtros por bin</h2>
+      <h2>Filtros</h2>
+      <div class="hint">Simulación de filtrado desde tabla</div>
       <div id="filter-bins"></div>
       <div class="actions">
         <button id="filter-clear">Limpiar</button>
