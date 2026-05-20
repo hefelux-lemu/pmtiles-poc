@@ -20,17 +20,22 @@
       right: 0;
       bottom: 0;
     }
-    .panel {
+    .left-stack {
       position: absolute;
       top: 12px;
       left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 360px;
+      z-index: 1;
+    }
+    .panel {
       background: rgba(255, 255, 255, 0.95);
       padding: 12px 16px;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       font-size: 13px;
-      max-width: 360px;
-      z-index: 1;
     }
     .panel h1 {
       margin: 0 0 6px;
@@ -82,39 +87,123 @@
       font-variant-numeric: tabular-nums;
       z-index: 1;
     }
+    #filters {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      font-size: 12px;
+    }
+    #filters h2 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #444;
+    }
+    #filters .bin {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 6px 8px;
+      margin: 2px 0;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      text-align: left;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    #filters .bin:hover {
+      background: #f8f8f8;
+    }
+    #filters .bin.active {
+      border-color: #1a73e8;
+      background: #e8f0fe;
+    }
+    #filters .bin .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      flex-shrink: 0;
+    }
+    #filters .bin .label {
+      flex: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    #filters .bin .check {
+      font-size: 11px;
+      color: #888;
+    }
+    #filters .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    #filters .actions button {
+      flex: 1;
+      padding: 4px 6px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    #filters .actions button:hover {
+      background: #f0f0f0;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div class="panel">
-    <h1>POC PMTiles - Temperatura Nonguén</h1>
-    <div class="meta">
-      Indicador LST otoño 2025 sobre Parque Nacional Nonguén.<br>
-      Formato: <strong>PMTiles vector tiles</strong>.<br>
-      Sin dissolve aplicado (caso "v1-clean").
+  <div class="left-stack">
+    <div class="panel">
+      <h1>POC PMTiles - Temperatura Nonguén</h1>
+      <div class="meta">
+        Indicador LST otoño 2025 sobre Parque Nacional Nonguén.<br>
+        Formato: <strong>PMTiles vector tiles</strong>.<br>
+        Sin dissolve aplicado (caso "v1-clean").
+      </div>
+      <div class="stat">
+        <span>Archivo PMTiles</span>
+        <strong>5.9 MB</strong>
+      </div>
+      <div class="stat">
+        <span>GeoJSON crudo</span>
+        <strong>45 MB</strong>
+      </div>
+      <div class="stat">
+        <span>GeoJSON gzipped</span>
+        <strong>3.0 MB</strong>
+      </div>
+      <div class="stat">
+        <span>Features fuente</span>
+        <strong>175.824</strong>
+      </div>
+      <div class="stat">
+        <span>Estado</span>
+        <strong id="status">cargando...</strong>
+      </div>
+      <div class="stat">
+        <span style="color: #555; font-size: 11px;">Click sobre un polígono para resaltar con feature-state</span>
+      </div>
     </div>
-    <div class="stat">
-      <span>Archivo PMTiles</span>
-      <strong>5.9 MB</strong>
-    </div>
-    <div class="stat">
-      <span>GeoJSON crudo</span>
-      <strong>45 MB</strong>
-    </div>
-    <div class="stat">
-      <span>GeoJSON gzipped</span>
-      <strong>3.0 MB</strong>
-    </div>
-    <div class="stat">
-      <span>Features fuente</span>
-      <strong>175.824</strong>
-    </div>
-    <div class="stat">
-      <span>Estado</span>
-      <strong id="status">cargando...</strong>
-    </div>
-    <div class="stat">
-      <span style="color: #555; font-size: 11px;">Click sobre un polígono para resaltar con feature-state</span>
+
+    <div id="filters">
+      <h2>Filtros por bin</h2>
+      <div id="filter-bins"></div>
+      <div class="actions">
+        <button id="filter-clear">Limpiar</button>
+      </div>
     </div>
   </div>
   <div id="fps">FPS: <span id="fps-val">—</span></div>
@@ -294,6 +383,72 @@
       map.on("mouseleave", "temperatura-fill", () => {
         map.getCanvas().style.cursor = "";
       });
+
+      // ---- Filtros por bin ----
+      // Los 3 bins detectados en el dataset, ordenados de menor a mayor temperatura.
+      const BINS = [
+        { value: "4,36",  label: "4.36 °C",  color: "#EDD071" },
+        { value: "13,35", label: "13.35 °C", color: "#E9A84A" },
+        { value: "18,01", label: "18.01 °C", color: "#E69D34" },
+      ];
+      const FILL_LAYER = "temperatura-fill";
+      const OUTLINE_LAYER = "temperatura-outline";
+
+      // Selección positiva: vacío = ver todo. Con algo seleccionado = solo ese.
+      const selectedBins = new Set();
+
+      function applyBinFilter() {
+        const filter = selectedBins.size === 0
+          ? null                                                          // sin filtro → todo visible
+          : ["in", ["get", "avgLst"], ["literal", [...selectedBins]]];     // solo seleccionados
+
+        map.setFilter(FILL_LAYER, filter);
+        map.setFilter(OUTLINE_LAYER, filter);
+
+        // Si el feature resaltado quedó fuera del filtro, limpiar highlight + popup.
+        if (selectedFeatureId != null && currentPopup) {
+          const popupAvg = currentPopup.getElement().textContent.match(/(\d+,\d+)\s*°C/);
+          if (selectedBins.size > 0 && popupAvg && !selectedBins.has(popupAvg[1])) {
+            clearSelection();
+            currentPopup.remove();
+            currentPopup = null;
+          }
+        }
+      }
+
+      function renderBinChips() {
+        const container = document.getElementById("filter-bins");
+        container.innerHTML = "";
+        for (const bin of BINS) {
+          const isActive = selectedBins.has(bin.value);
+          const btn = document.createElement("button");
+          btn.className = "bin" + (isActive ? " active" : "");
+          btn.dataset.value = bin.value;
+          btn.innerHTML = `
+            <span class="swatch" style="background:${bin.color}"></span>
+            <span class="label">${bin.label}</span>
+            <span class="check">${isActive ? "✓" : ""}</span>
+          `;
+          btn.addEventListener("click", () => {
+            if (selectedBins.has(bin.value)) {
+              selectedBins.delete(bin.value);
+            } else {
+              selectedBins.add(bin.value);
+            }
+            applyBinFilter();
+            renderBinChips();
+          });
+          container.appendChild(btn);
+        }
+      }
+
+      document.getElementById("filter-clear").addEventListener("click", () => {
+        selectedBins.clear();
+        applyBinFilter();
+        renderBinChips();
+      });
+
+      renderBinChips();
     });
 
     // FPS counter — útil para ver fluidez al panear/zoomear
